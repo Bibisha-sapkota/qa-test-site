@@ -570,22 +570,43 @@ document.addEventListener('click',e=>{
   hit.closest(SEL).click();
 },true);
 
-/* ---------- Header guard ----------
-   If a third-party widget layer sits on top of the header, cut only the header strip out of that
-   layer (clip-path). The rest of the widget (chat card, launcher) is not touched and keeps working. */
-function guardHeader(){
+/* ---------- Widget guard ----------
+   The chat widget can leave an invisible full-screen layer over the page, which swallows every click
+   (header, Add to cart...). We keep that layer active ONLY in the bottom-right corner where the widget
+   really is (clip-path), so the widget keeps working and the rest of the page is clickable. */
+const WZ={small:{w:400,h:380},big:{w:480,h:720}};
+let zoneBig=false;
+function setZone(big){
+  const z=big?WZ.big:WZ.small,hh=$('#site-header').offsetHeight,st=document.documentElement.style;
+  st.setProperty('--wz-w',Math.min(z.w,innerWidth)+'px');
+  st.setProperty('--wz-h',Math.max(0,Math.min(z.h,innerHeight-hh))+'px');
+}
+function bigZone(on){if(zoneBig!==on){zoneBig=on;setZone(on)}}
+function guardWidget(){
   if(typeof document.elementFromPoint!=='function')return;
-  document.querySelectorAll('header nav a, header .logo, #open-cart').forEach(a=>{
-    const r=a.getBoundingClientRect();if(!r.width||!r.height)return;
+  const seen=new Set();
+  document.querySelectorAll('header nav a, header .logo, #open-cart, .add').forEach(a=>{
+    const r=a.getBoundingClientRect();
+    if(!r.width||!r.height||r.top<0||r.left<0||r.bottom>innerHeight||r.right>innerWidth)return;
     let hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
     if(!hit||hit===a||a.contains(hit)||hit.closest('header, main, footer, .drawer, .modal, .overlay, #toast'))return;
     while(hit.parentElement&&hit.parentElement!==document.body&&hit.parentElement!==document.documentElement)hit=hit.parentElement;
-    hit.style.setProperty('clip-path','inset(var(--hh) 0 0 0)','important');
-    console.warn('A layer was covering the header. Its header strip is now click-through:',hit);
+    if(seen.has(hit))return;seen.add(hit);
+    hit.style.setProperty('clip-path','inset(calc(100% - var(--wz-h)) 0 0 calc(100% - var(--wz-w)))','important');
+    console.warn('A layer was covering the page. Only its bottom-right corner stays clickable now:',hit);
   });
 }
-[300,1500,4000].forEach(ms=>setTimeout(guardHeader,ms));
-let ghTimer;new MutationObserver(()=>{clearTimeout(ghTimer);ghTimer=setTimeout(guardHeader,200)}).observe(document.body,{childList:true});
+setZone(false);
+window.addEventListener('resize',()=>setZone(zoneBig));
+/* chat window open (iframe gets focus / widget clicked) -> bigger active corner; click on the page -> small again */
+window.addEventListener('blur',()=>setTimeout(()=>{const ae=document.activeElement;if(ae&&ae.tagName==='IFRAME')bigZone(true)},0));
+window.addEventListener('focus',()=>bigZone(false));
+document.addEventListener('click',e=>{
+  const t=e.target;if(!(t instanceof Element)||t===document.body||t===document.documentElement)return;
+  bigZone(!t.closest('header, main, footer, .drawer, .modal, .overlay, #toast'));
+},true);
+[300,1500,4000].forEach(ms=>setTimeout(guardWidget,ms));
+let gwTimer;new MutationObserver(()=>{clearTimeout(gwTimer);gwTimer=setTimeout(guardWidget,200)}).observe(document.body,{childList:true});
 
 /* ---------- Init ---------- */
 $('#collage').innerHTML=[1,5,2].map(id=>`<div class="cover">${coverSVG(byId(id))}</div>`).join('');
